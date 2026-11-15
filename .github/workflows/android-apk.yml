@@ -1,0 +1,79 @@
+name: SA Calculator Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Test and Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate JavaScript syntax
+        run: |
+          node --check assets/js/app.js
+          node --check assets/js/localization.js
+          node --check assets/js/currency-localized-names.js
+          node --check assets/js/theme-bootstrap.js
+          node --check server.js
+          node --check service-worker.js
+      - name: Run complete regression tests
+        run: npm test
+      - name: Prepare Android web bundle
+        run: npm run build:web
+      - name: Verify Android web bundle
+        run: |
+          test -s www/index.html
+          test -s www/service-worker.js
+          test -s www/assets/js/app.js
+          test -s www/assets/css/app.css
+          echo "Android web bundle verification passed."
+      - name: Generate Android project
+        run: npx cap add android
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+      - name: Verify APK output
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SA-Calculator-Android-Debug-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
